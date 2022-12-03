@@ -13,15 +13,12 @@ import sunpy.map
 from sunpy.coordinates import RotatedSunFrame
 import sunpy.coordinates.frames as f
 
-fits_dirs = sorted(glob('fits_original/*'))
-npy_files  = sorted(glob('npy_decoded/*'))
+fits_dirs = sorted(glob('data/fits_original/*'))
+npy_files  = sorted(glob('data/npy_decoded/*'))
+json = 'data/rectangle_coords.json'
 
-rectangle_coords = [
-#           [ -650, 500, -900, 250 ],
-#            [ 500, -100, -500, -600 ],
-            [ 200, -150, -500, -620 ],
-#            [ -700, -250, -850, -400 ],
-        ]
+
+max_original_fulldisk = np.zeros((
 
 
 for i in range(len(npy_files)):
@@ -85,28 +82,28 @@ for i in range(len(npy_files)):
         map_original  = sunpy.map.Map(fits_files[j])
         map_prediction = sunpy.map.Map(fulldisk_prediction, header)
 
-        original_pixel_top_right = map_original.world_to_pixel(coords_top_right[j])
-        original_pixel_bottom_left = map_original.world_to_pixel(coords_bottom_left[j])
+        pixel_top_right_original = map_original.world_to_pixel(coords_top_right[j])
+        pixel_bottom_left_original = map_original.world_to_pixel(coords_bottom_left[j])
 
-        prediction_pixel_top_right = map_prediction.world_to_pixel(coords_top_right[j])
-        prediction_pixel_bottom_left = map_prediction.world_to_pixel(coords_bottom_left[j])
+        pixel_top_right_prediction = map_prediction.world_to_pixel(coords_top_right[j])
+        pixel_bottom_left_prediction = map_prediction.world_to_pixel(coords_bottom_left[j])
 
         # cut off regions
-        region_original   = np.ravel(fulldisk_original[round(original_pixel_bottom_left.x.value):round(original_pixel_top_right.x.value),
-                                        round(original_pixel_bottom_left.y.value):round(original_pixel_top_right.y.value)])
-        region_prediction = np.ravel(fulldisk_prediction[round(prediction_pixel_bottom_left.x.value):round(prediction_pixel_top_right.x.value),
-                                           round(prediction_pixel_bottom_left.y.value):round(prediction_pixel_top_right.y.value)])
+        region_original     = np.ravel(fulldisk_original[round(pixel_bottom_left_original.x.value):round(pixel_top_right_original.x.value),
+                                                         round(pixel_bottom_left_original.y.value):round(pixel_top_right_original.y.value)])
+        region_prediction = np.ravel(fulldisk_prediction[round(pixel_bottom_left_prediction.x.value):round(pixel_top_right_prediction.x.value),
+                                                         round(pixel_bottom_left_prediction.y.value):round(pixel_top_right_prediction.y.value)])
  
         # calculate indices
-        original_region_max   = np.amax(region_original)
-        original_region_avg   = np.mean(region_original)
-        prediction_region_max = np.amax(region_prediction)
-        prediction_region_avg = np.mean(region_prediction)
+        max_original_region   = np.amax(region_original)
+        avg_original_region   = np.mean(region_original)
+        max_prediction_region = np.amax(region_prediction)
+        avg_prediction_region = np.mean(region_prediction)
 
-        original_fulldisk_max   = np.amax(fulldisk_original)
-        original_fulldisk_avg   = np.mean(fulldisk_original)
-        prediction_fulldisk_max = np.amax(fulldisk_prediction)
-        prediction_fulldisk_avg = np.mean(fulldisk_prediction)
+        max_original_fulldisk   = np.amax(fulldisk_original)
+        avg_original_fulldisk   = np.mean(fulldisk_original)
+        max_prediction_fulldisk = np.amax(fulldisk_prediction)
+        avg_prediction_fulldisk = np.mean(fulldisk_prediction)
 
         print('t =',j)
         print(map_original.date)
@@ -117,10 +114,10 @@ for i in range(len(npy_files)):
         print(fulldisk_original.size)
         print(fulldisk_prediction.size)
  
-        print('max', original_region_max)
-        print('avg', original_region_avg)
-        print('max', prediction_region_max)
-        print('avg', prediction_region_avg)
+        print('max', max_original_region)
+        print('avg', avg_original_region)
+        print('max', max_prediction_region)
+        print('avg', avg_prediction_region)
         print('------')
 
         # index
@@ -154,54 +151,56 @@ for i in range(len(npy_files)):
             linestyle="--",
             linewidth=2,
         )
-        ax[3 + j*num_ax].axis("off")
-        ax[4 + j*num_ax].axis("off")
+        #ax[3 + j*num_ax].axis("off")
+        #ax[4 + j*num_ax].axis("off")
 
         # hist of region
-        max_x_region = max(original_region_max, prediction_region_max)
+        max_x_region = max(max_original_region, max_prediction_region)
         class_width = max_x_region / 50
-        bins_original_region   = round(original_region_max / class_width)
-        bins_prediction_region = round(prediction_region_max / class_width)
+        bins_original_region   = round(max_original_region / class_width)
+        bins_prediction_region = round(max_prediction_region / class_width)
         freq_original_region   = np.histogram(region_original, bins=bins_original_region, density=False)
         freq_prediction_region = np.histogram(region_prediction, bins=bins_prediction_region, density=False)
         max_y_region = max(np.amax(freq_original_region[0]), np.amax(freq_prediction_region[0])) * 1.10
 
         ax.append(fig.add_subplot(gs[1+j*4:5+j*4, 5:9], xlim=(0,max_x_region), ylim=(1,max_y_region)))
         ax[5 + j*num_ax].hist(region_original, bins=bins_original_region)
-        ax[5 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.8, 'max: ' + str(original_region_max)[:6])
-        ax[5 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.7, 'avg: ' + str(original_region_avg)[:6])
+        ax[5 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.8, 'max: ' + str(max_original_region)[:6])
+        ax[5 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.7, 'avg: ' + str(avg_original_region)[:6])
         ax[5 + j*num_ax].set_title('brightness distribution (region)')
         ax[5 + j*num_ax].set_box_aspect(1)
 
         ax.append(fig.add_subplot(gs[1+j*4:5+j*4, 17:21], xlim=(0,max_x_region), ylim=(1,max_y_region)))
         ax[6 + j*num_ax].hist(region_prediction, bins=bins_prediction_region)
-        ax[6 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.8, 'max: ' + str(prediction_region_max)[:6])
-        ax[6 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.7, 'avg: ' + str(prediction_region_avg)[:6])
+        ax[6 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.8, 'max: ' + str(max_prediction_region)[:6])
+        ax[6 + j*num_ax].text(max_x_region * 0.4, max_y_region * 0.7, 'avg: ' + str(avg_prediction_region)[:6])
         ax[6 + j*num_ax].set_title('brightness distribution (region)')
         ax[6 + j*num_ax].set_box_aspect(1)
 
         # hist of fulldisk
-        max_x_fulldisk = max(original_fulldisk_max, prediction_fulldisk_max)
+        max_x_fulldisk = max(max_original_fulldisk, max_prediction_fulldisk)
         class_width = max_x_fulldisk / 50
-        bins_original_fulldisk   = round(original_fulldisk_max / class_width)
-        bins_prediction_fulldisk = round(prediction_fulldisk_max / class_width)
+        bins_original_fulldisk   = round(max_original_fulldisk / class_width)
+        bins_prediction_fulldisk = round(max_prediction_fulldisk / class_width)
         freq_original_fulldisk   = np.histogram(fulldisk_original, bins=bins_original_fulldisk, density=False)
         freq_prediction_fulldisk = np.histogram(fulldisk_prediction, bins=bins_prediction_fulldisk, density=False)
         max_y_fulldisk = max(np.amax(freq_original_fulldisk[0]), np.amax(freq_prediction_fulldisk[0])) * 1.10
+        fulldisk_original_sample   = random.sample(list(fulldisk_original) ,fulldisk_original.size / 20)
+        fulldisk_prediction_sample = random.sample(list(fulldisk_prediction), fulldisk_prediction.size / 20)
 
         ax.append(fig.add_subplot(gs[1+j*4:5+j*4, 9:13], xlim=(0, max_x_fulldisk), ylim=(1, max_y_fulldisk)))
-        ax[7 + j*num_ax].hist(fulldisk_original, bins=bins_original_fulldisk)
-        ax[7 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.8, 'max: ' + str(original_fulldisk_max)[:6])
-        ax[7 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.7, 'avg: ' + str(original_fulldisk_avg)[:6])
-        ax[7 + j*num_ax].set_title('brightness distribution (fulldisk)')
+        ax[7 + j*num_ax].hist(fulldisk_original_sample, bins=bins_original_fulldisk)
+        ax[7 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.8, 'max: ' + str(max_original_fulldisk)[:6])
+        ax[7 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.7, 'avg: ' + str(avg_original_fulldisk)[:6])
+        ax[7 + j*num_ax].set_title('brightness distribution sampled at 1/20 (fulldisk)')
         ax[7 + j*num_ax].set_xlabel('brightness')
         ax[7 + j*num_ax].set_box_aspect(1)
 
         ax.append(fig.add_subplot(gs[1+j*4:5+j*4, 21:25], xlim=(0, max_x_fulldisk), ylim=(1, max_y_fulldisk)))
-        ax[8 + j*num_ax].hist(fulldisk_prediction, bins=bins_prediction_fulldisk)
-        ax[8 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.8, 'max: ' + str(prediction_fulldisk_max)[:6])
-        ax[8 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.7, 'avg: ' + str(prediction_fulldisk_avg)[:6])
-        ax[8 + j*num_ax].set_title('brightness distribution (fulldisk)')
+        ax[8 + j*num_ax].hist(fulldisk_prediction_sample, bins=bins_prediction_fulldisk)
+        ax[8 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.8, 'max: ' + str(max_prediction_fulldisk)[:6])
+        ax[8 + j*num_ax].text(max_x_fulldisk * 0.4, max_y_fulldisk * 0.7, 'avg: ' + str(avg_prediction_fulldisk)[:6])
+        ax[8 + j*num_ax].set_title('brightness distribution sampled at 1/20 (fulldisk)')
         ax[8 + j*num_ax].set_xlabel('brightness')
         ax[8 + j*num_ax].set_box_aspect(1)
 
@@ -213,7 +212,7 @@ for i in range(len(npy_files)):
         """
 
         # scatter
-        scatter_max = max(original_region_max, prediction_region_max)
+        scatter_max = max(max_original_region, max_prediction_region)
         r = np.corrcoef(region_original, region_prediction)[0,1]
 
         ax.append(fig.add_subplot(gs[1+j*4:5+j*4, 25:29], xlim=(0, scatter_max), ylim=(0, scatter_max)))
