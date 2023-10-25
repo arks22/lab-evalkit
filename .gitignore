@@ -1,1 +1,8 @@
 data
+gomi
+__pycache__/
+*.fits
+*.npy
+*.png
+*.jpg
+*.mp4
