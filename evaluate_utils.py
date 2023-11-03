@@ -143,7 +143,6 @@ def generate_mean_map_by_lng(smap, num_regions, area_debug=False):
             print(np.count_nonzero(mask))
             print('------------------')
 
-
     mean_region_map = Map(mean_region_data, smap.meta)
 
     return mean_region_map, mean_arr
@@ -182,6 +181,7 @@ def find_limb_deg(smap):
 
 
 def calculate_metrics(img):
+    # 画像の輝度の平均値と最大値を計算
     mean_val = np.nanmean(img)
     max_val = np.nanmax(img)
 
@@ -209,7 +209,28 @@ def calculate_ssim(img1, img2):
     ssim_val = structural_similarity(img1, img2, data_range=data_range)
 
     return ssim_val
+    
 
+def calculate_blur_with_fft(img):
+    # フーリエ変換を行う
+    f = np.fft.fft2(img)
+    # 画像の中心に低周波数の成分がくるように並べかえる
+    fshift = np.fft.fftshift(f)
+
+    # マグニチュードスペクトルを計算
+    magnitude_spectrum = np.log(np.abs(fshift))
+ 
+    # 低周波成分を除去
+    filter_size = 200
+    rows, cols = img.shape
+    crow, ccol = rows//2, cols//2
+    magnitude_spectrum[crow-filter_size:crow+filter_size, ccol-filter_size:ccol+filter_size] = 0
+
+    # ぼやけ度を計算（高周波成分のエネルギーの平均）
+    blur_measure = np.mean(magnitude_spectrum)
+
+    return blur_measure
+    
 
 def find_max_in_ndarrays(A):
     max_values = [np.nanmax(np.abs(arr)) for arr in A]

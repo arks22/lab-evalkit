@@ -39,6 +39,7 @@ from evaluate_utils import find_limb_deg
 from evaluate_utils import generate_submap_by_lng
 from evaluate_utils import generate_mean_map_by_lng
 from evaluate_utils import generate_diff_map
+from evaluate_utils import calculate_blur_with_fft
 
 
 def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output, len_input, args):
@@ -54,18 +55,19 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
     gt_east_limb = np.full((len_test), np.nan)
     pd_east_limb = np.full((len_test), np.nan)
 
-    error_gt_pd      = np.full_like(gt_mean, np.nan)
+    error_gt_pd       = np.full_like(gt_mean, np.nan)
     error_crop_gt_sp  = np.full_like(gt_mean, np.nan)
     error_crop_gt_pd  = np.full_like(gt_mean, np.nan)
 
-    ssim_gt_pd       = np.full_like(gt_mean, np.nan)
+    ssim_gt_pd        = np.full_like(gt_mean, np.nan)
     ssim_crop_gt_sp   = np.full_like(gt_mean, np.nan)
     ssim_crop_gt_pd   = np.full_like(gt_mean, np.nan)
+    
+    blur_fft = np.full_like(gt_mean, np.nan)
 
     img_shape = (args.img_size, args.img_size)
 
     for i in tqdm(range(len_test), leave=False):
-        if i==1: break
         gt_fits_files = sorted(glob(f'{gt_dirs[i]}/*'))
         pd_fits_files = sorted(glob(f'{pd_dirs[i]}/*'))
 
@@ -81,7 +83,6 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
             gt_map = resize_map(gt_map, img_shape)
 
             dummy_map = Map(np.full(img_shape, 0), gt_map.meta)
-
 
             if t < len_input:
                 pd_map     = dummy_map
@@ -111,14 +112,14 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
                 mean_map_pd, pd_mean_lng = generate_mean_map_by_lng(pd_crop_map, num_regions)
                 mean_map_sp, sp_mean_lng = generate_mean_map_by_lng(sp_map,     num_regions)
 
-
                 # 最終出力で東のリムの平均輝度を計算
+                """
                 if t == len_seq-1:
                     _, gt_mean_lng_limb = generate_mean_map_by_lng(gt_map, num_regions)
                     _, pd_mean_lng_limb = generate_mean_map_by_lng(pd_map, num_regions)
                     gt_east_limb[i] = gt_mean_lng_limb[num_regions-1]
                     pd_east_limb[i] = pd_mean_lng_limb[num_regions-1]
-
+                """
 
                 gt_pd_error_lng[i, t] = calculate_error(pd_mean_lng, gt_mean_lng)
                 gt_sp_error_lng[i, t] = calculate_error(sp_mean_lng, gt_mean_lng)
@@ -147,8 +148,10 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
             pd_crop_img = pd_crop_maps[t].data
 
             gt_mean[i, t], _ = calculate_metrics(gt_img)
-
-            if t >= len_input:
+            
+            if t < len_input:
+                blur_fft[i,t] = calculate_blur_with_fft(gt_img)
+            else:
                 pd_mean[i, t], _      = calculate_metrics(pd_img)
                 pd_crop_mean[i, t], _ = calculate_metrics(pd_crop_img)
                 gt_crop_mean[i, t], _ = calculate_metrics(gt_crop_img)
@@ -161,27 +164,20 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
                 ssim_gt_pd[i,t]        = calculate_ssim(gt_img, pd_img)
                 ssim_crop_gt_sp[i,t]   = calculate_ssim(gt_crop_img, sp_img)
                 ssim_crop_gt_pd[i,t]   = calculate_ssim(gt_crop_img, pd_crop_img)
-
+                
+                blur_fft[i,t] = calculate_blur_with_fft(pd_img)
+                
         # --------------------------------------------------------------------#
         # プロット
         if not args.dont_plot:
             save_dir = f'./{timestamp}/fulldisk/'
             os.makedirs(save_dir, exist_ok=True)
 
-            """
-            # 画像プロット
-            #GT
-            plot_images(gt_maps, 'gt_example_images.png')
-            #PD
-            plot_images(pd_maps, 'pd_example_images.png')
-            """
-
-
             writer = imageio.get_writer(f'{save_dir}/{i}.mp4', fps=5)
 
             for t in tqdm(range(len_seq), leave=False, desc='Plot: '):
-                fig = plt.figure(figsize=(24,32), tight_layout=True) #(横,縦)
-                gspec = gridspec.GridSpec(15, 3) #(縦,横)
+                fig = plt.figure(figsize=(24,36), tight_layout=True) #(横,縦)
+                gspec = gridspec.GridSpec(17, 3) #(縦,横)
                 plt.rcParams["font.size"] = 14
 
                 """
@@ -201,9 +197,9 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
                 """
 
                 # クロップされたマップのプロット
-                plot_map(fig, gspec[0:3,0], gt_maps[t], draw_lng=True)
-                plot_map(fig, gspec[0:3,1], pd_maps[t], draw_lng=True)
-                plot_map(fig, gspec[0:3,2], sp_maps[t], draw_lng=True)
+                plot_map(fig, gspec[0:3,0], gt_maps[t], draw_lng=False)
+                plot_map(fig, gspec[0:3,1], pd_maps[t], draw_lng=False)
+                plot_map(fig, gspec[0:3,2], sp_maps[t], draw_lng=False)
 
                 # 差分マップのプロット
                 if t >= len_input:
@@ -227,7 +223,7 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
 
                 # 輝度強度の誤差推移グラフ
                 error_list = [('GT - Prediction', error_crop_gt_pd[i], '#ff7f0e'), ('GT - Sunpy', error_crop_gt_sp[i], '#2ca02c')]
-                plot_metrics(fig, gspec[11:13,0:3], error_list, 'Error of Mean Intensity', '%',-30, 30, 0, len_seq, len_input, is_move=True, t=t, is_error=True)
+                plot_metrics(fig, gspec[11:13,0:3], error_list, 'Error of Mean Intensity', '%',-30, 30, 12, len_seq, len_input, is_move=True, t=t, is_error=True)
 
                 # 経度ごとの平均輝度の誤差推移グラフ
                 cmap_tab10 = cm.get_cmap('tab10', 10)
@@ -241,9 +237,13 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
                               ('GT - SP | -18 to 18' , gt_sp_error_lng[i,:,2], cmap_tab10(2), ':', 'x'),
                               ('GT - SP | -18 to -54'  , gt_sp_error_lng[i,:,3], cmap_tab10(3), ':', 'x'),
                               ('GT - SP | -54 to -90'  , gt_sp_error_lng[i,:,4], cmap_tab10(4), ':', 'x')]
-                plot_metrics(fig, gspec[13:15,0:3], error_list, 'Error rate per longitude ', '%', -60, 60, 0, len_seq, len_input, is_move=True, t=t, is_error=True)
+                plot_metrics(fig, gspec[13:15,0:3], error_list, 'Error rate per longitude ', '%', -60, 60, 12, len_seq, len_input, is_move=True, t=t, is_error=True)
+                
+                # ブラー推移グラフ
+                plot_metrics(fig, gspec[15:17,0:3], [('Blur', blur_fft[i], '#1f77b4')], 'Blur', 'Blur', 0, 10, 0, len_seq, len_input, is_move=True, t=t)
 
                 """
+                # SSIM推移グラフ
                 ssim_list = [('GT - Prediction', ssim_crop_gt_pd[i], '#ff7f0e'), ('GT - Sunpy', ssim_crop_gt_sp[i], '#2ca02c')]
                 plot_metrics(fig, gspec[5,3:6], ssim_list, 'SSIM', 'SSIM',  0.85, 1, 0, len_seq, len_input, is_move=True, t=t)
                 """
@@ -287,26 +287,6 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
                   ('-90d to -54d', mean_error_gt_pd_lng[:,4], cmap_tab10(4), '-', 'o')]
     plot_metrics(fig, gspec[3,0], error_list, 'Average Error Rate of Mean Intensity Per Longitude of GT - Prediction', '%', -15, 15, len_input, len_seq, len_input, is_write_val=True)
 
-    area = np.array([6407, 31821, 39491, 31847, 12171])
-    sum_area = np.sum(area)
-
-    mean_area_pd = np.sum(mean_error_gt_pd_lng[-1]* area) / sum_area
-    print('GT-PD')
-    print(mean_error_gt_pd_lng[-1])
-    print('lng:')
-    print(mean_area_pd)
-    print('total:')
-    print(mean_error_gt_pd[-1])
-
-    mean_area_sp = np.sum(mean_error_gt_sp_lng[-1]* area) / sum_area
-    print('GT-SP')
-    print(mean_error_gt_sp_lng[-1])
-    print('lng:')
-    print(mean_area_sp)
-    print('total:')
-    print(mean_error_gt_sp[-1])
-
-
     error_list = [('54d to 90d',   mean_error_gt_sp_lng[:,0], cmap_tab10(0), ':', 'x'),
                   ('18d to 54d',   mean_error_gt_sp_lng[:,1], cmap_tab10(1), ':', 'x'),
                   ('-18d to 18d',  mean_error_gt_sp_lng[:,2], cmap_tab10(2), ':', 'x'),
@@ -318,10 +298,12 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
     ssim_list = [('GT - Prediction', mean_ssim_gt_pd, '#ff7f0e'), ('GT - Sunpy', mean_ssim_gt_sp, '#2ca02c')]
     plot_metrics(fig, gspec[4,:], ssim_list, 'Average SSIM', 'SSIM',  0.85, 1, len_input, len_seq, len_input, is_write_val=True)
 
+    """
     gt_east_limb = np.delete(gt_east_limb, 47)
     pd_east_limb = np.delete(pd_east_limb, 47)
     min_v, max_v = min(np.nanmin(gt_east_limb), np.nanmin(pd_east_limb)) * 0.8, max(np.nanmax(gt_east_limb), np.nanmax(pd_east_limb)) * 1.1
     plot_scatter(fig, gspec[5,0], gt_east_limb, pd_east_limb, min_v, max_v, 'GT Intensity', 'Prediction Intensity')
+    """
 
 
     fig.savefig(f'./{timestamp}/summary_fulldisk.png')

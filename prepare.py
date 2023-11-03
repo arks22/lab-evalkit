@@ -14,10 +14,10 @@ def main(args):
     os.makedirs(f'{args.pd_timestamp}/pd_fits', exist_ok=True)
 
     # 1. Transfer the ground truth fits files
-    #transfer_gt_fits(args.fits_source, args.pd_timestamp, args.assignment_path)
+    transfer_gt_fits(args.fits_source, args.pd_timestamp, args.assignment_path, args.wave_n)
     
     # 2. Transfer the prediction npy files
-    transfer_pd_npy(args.pd_timestamp)
+    transfer_pd_npy(args.pd_timestamp, args.wave_n)
     
     # 3. Decode the scaling and normalize the images
     reverse_processing(args.pd_timestamp, args.min_value, args.max_value)
@@ -35,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument('--assignment_path', type=str, required=True)
     parser.add_argument('--min_value', type=float, default=0, help='Min value for decoding normalization')
     parser.add_argument('--max_value', type=float, default=10000, help='Max value for decoding normalization')
+    parser.add_argument('--wave_n', type=float, default=1, help='Number of wavelength channels')
     
     args = parser.parse_args()
     main(args)
