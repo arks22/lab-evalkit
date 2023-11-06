@@ -1,5 +1,6 @@
 import argparse
 import os
+from os.path import join
 from prepare_utils.transfer_gt_fits import transfer_gt_fits
 from prepare_utils.transfer_pd_npy import transfer_pd_npy
 from prepare_utils.reverse_processing import reverse_processing 
@@ -9,25 +10,30 @@ from prepare_utils.convert_npy_to_fits import convert_npy_to_fits
 
 def main(args):
     # Make output directory
-    os.makedirs(f'{args.pd_timestamp}/tmp', exist_ok=True)
-    os.makedirs(f'{args.pd_timestamp}/gt_fits', exist_ok=True)
-    os.makedirs(f'{args.pd_timestamp}/pd_fits', exist_ok=True)
+    parent_dir = 'aia211' if args.wave_n == 1 else 'aia3wave'
+    dst_dir = join(parent_dir, args.pd_timestamp)
+    tmp_dir = join(dst_dir, 'tmp')
+    gt_fits_dir = join(dst_dir, 'gt_fits')
+    pd_fits_dir = join(dst_dir, 'pd_fits')
+    os.makedirs(tmp_dir, exist_ok=True)
+    os.makedirs(gt_fits_dir, exist_ok=True)
+    os.makedirs(pd_fits_dir, exist_ok=True)
 
     # 1. Transfer the ground truth fits files
-    transfer_gt_fits(args.fits_source, args.pd_timestamp, args.assignment_path, args.wave_n)
-    
+    transfer_gt_fits(args.fits_source, gt_fits_dir, args.assignment_path, args.wave_n)
+
     # 2. Transfer the prediction npy files
-    transfer_pd_npy(args.pd_timestamp, args.wave_n)
-    
+    transfer_pd_npy(args.pd_timestamp, tmp_dir, dst_dir, args.wave_n)
+
     # 3. Decode the scaling and normalize the images
-    reverse_processing(args.pd_timestamp, args.min_value, args.max_value)
+    reverse_processing(tmp_dir, args.min_value, args.max_value)
    
     # 4. Split the images
-    split_npy(args.pd_timestamp)
-    
-    # 5. Convert npy to fits
-    convert_npy_to_fits(args.pd_timestamp)
+    split_npy(tmp_dir)
 
+    # 5. Convert npy to fits
+    convert_npy_to_fits(tmp_dir, gt_fits_dir, pd_fits_dir)
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('pd_timestamp', type=str, help='TimeStamp of The predictiopn source directory from which to copy the npy files')

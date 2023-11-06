@@ -5,9 +5,9 @@ import os
 from tqdm import tqdm
 
 
-def reverse_processing(timestamp, min_value, max_value):
+def reverse_processing(tmp_dir, min_value, max_value):
     print('3. reverse processing....')
-    files = glob.glob(f'{timestamp}/tmp/*.npy')
+    files = glob.glob(f'{tmp_dir}/*.npy')
     
     for file in tqdm(files):
         # Load the data
@@ -22,4 +22,4 @@ def reverse_processing(timestamp, min_value, max_value):
         data = np.squeeze(data)
         
         # Save the file back to the 'tmp' directory
-        np.save(os.path.join(timestamp, 'tmp', os.path.basename(file)), data)
+        np.save(os.path.join(tmp_dir, os.path.basename(file)), data)

@@ -36,7 +36,7 @@ def txt_to_array_dataset(file_path, dataset_type):
     return datasets
 
 
-def transfer_gt_fits(source, timestamp, assignment_path, wave_n):
+def transfer_gt_fits(source, gt_fits_dir, assignment_path, wave_n):
     print('1. transfer ground truth FITS ....')
     dataset_type = 'test'
 
@@ -52,7 +52,7 @@ def transfer_gt_fits(source, timestamp, assignment_path, wave_n):
         fits_seq = [filename.replace('npy', 'fits') for filename in npy_seq]
 
         # ターゲットディレクトリを作成
-        target_dir = os.path.join(timestamp, 'gt_fits', f"{i+1:02}")
+        target_dir = os.path.join(gt_fits_dir, f"{i+1:02}")
         os.makedirs(target_dir, exist_ok=True)
 
         # FITSファイルをコピー

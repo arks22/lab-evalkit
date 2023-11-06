@@ -42,7 +42,7 @@ from evaluate_utils import generate_diff_map
 from evaluate_utils import calculate_blur_with_fft
 
 
-def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output, len_input, args):
+def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, len_input, args):
     gt_mean      = np.full((len_test, len_seq), np.nan)
     pd_mean      = np.full_like(gt_mean, np.nan)
     sp_mean      = np.full_like(gt_mean, np.nan)
@@ -170,7 +170,7 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
         # --------------------------------------------------------------------#
         # プロット
         if not args.dont_plot:
-            save_dir = f'./{timestamp}/fulldisk/'
+            save_dir = os.path.join(dst_dir, 'fulldisk')
             os.makedirs(save_dir, exist_ok=True)
 
             writer = imageio.get_writer(f'{save_dir}/{i}.mp4', fps=5)
@@ -306,4 +306,5 @@ def evaluate_fulldisk(timestamp, gt_dirs, pd_dirs, len_test, len_seq, len_output
     """
 
 
-    fig.savefig(f'./{timestamp}/summary_fulldisk.png')
+    summary_plot_path = os.path.join(dst_dir, 'summary_fulldisk.png')
+    fig.savefig(summary_plot_path)
