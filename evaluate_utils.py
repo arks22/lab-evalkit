@@ -10,11 +10,17 @@ from skimage.metrics import structural_similarity
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
+import matplotlib
 
 from astropy.io import fits
 import astropy.units as u
 from astropy.time import TimeDelta
 from astropy.coordinates import SkyCoord
+
+from matplotlib import rc
+rc('font', family='serif')
+rc('font', serif='Times New Roman')
+rc('text', usetex=False)
 
 from sunpy.map import Map
 from sunpy.coordinates import frames
@@ -22,6 +28,7 @@ from sunpy.physics.differential_rotation import differential_rotate
 from sunpy.physics.differential_rotation import solar_rotate_coordinate
 from sunpy.coordinates.ephemeris import get_body_heliographic_stonyhurst
 from sunpy.coordinates import sun
+from astropy.coordinates import Angle
 
 # cycler('color', ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
 
@@ -62,7 +69,7 @@ def mask_map(map1, map2):
 
     return masked_map
 
-def generate_submap_by_lng(smap, lon_start, lon_end):
+def generate_submap_by_lng(smap, lon_tuple):
     """
     与えられた経度範囲に基づいてsubmapを作成
 
@@ -81,6 +88,8 @@ def generate_submap_by_lng(smap, lon_start, lon_end):
     all_lons = all_coords.transform_to(frames.HeliographicStonyhurst).lon
 
     # マスクを作成: 始点と終点の経度の間にあるピクセルを選択
+    lon_start = Angle(lon_tuple[0] * u.deg)
+    lon_end = Angle(lon_tuple[1] * u.deg)
     mask = np.logical_and(all_lons >= lon_start, all_lons <= lon_end)
 
     # 新しいデータ配列を作成
@@ -309,7 +318,7 @@ def plot_histogram(fig, fig_gspec, img, min_v, max_v):
     ax.grid(True)
 
 
-def plot_scatter(fig, fig_gspec, x, y, min_v, max_v, x_label, y_label):
+def plot_scatter(fig, fig_gspec, x, y, x_label, y_label, lim=None):
     ax = fig.add_subplot(fig_gspec) 
 
     correlation_coefficient = np.corrcoef(x, y)[0, 1]
@@ -317,13 +326,33 @@ def plot_scatter(fig, fig_gspec, x, y, min_v, max_v, x_label, y_label):
 
     ax.legend()
     ax.grid(True)
-    ax.set_ylim([min_v, max_v])
-    ax.set_xlim([min_v, max_v])
+    if lim is not None:
+        ax.set_xlim(lim[0], lim[1])
+        ax.set_ylim(lim[0], lim[1])
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
 
+def plot_scatter_thesis(title, x, y, x_label, y_label, color='green', lim=None):
+    matplotlib.rcParams.update({'font.size': 20})
+    fig = plt.figure(figsize=(7, 7))
+    ax = fig.add_subplot(1, 1, 1)
 
-def plot_metrics(fig, fig_gspec, metrics_list, title, ylabel, min_v, max_v, start_seq, len_seq, len_input, is_move=False, t=0, is_error=False, is_write_val=False):
+    correlation_coefficient = np.corrcoef(x, y)[0, 1]
+    ax.scatter(x,y, marker='x', color=color, label=f'Correlation: {correlation_coefficient:.2f}')
+
+    ax.legend()
+    ax.grid(True)
+    if lim is not None:
+        ax.set_xlim(lim[0], lim[1])
+        ax.set_ylim(lim[0], lim[1])
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    
+    plt.tight_layout()
+    plt.savefig(title + '.png')
+
+
+def plot_metrics(fig, fig_gspec, metrics_list, title, ylabel, start_seq, len_seq, len_input, y_lim=None, is_move=False, t=0, is_error=False, is_write_val=False):
     ax = fig.add_subplot(fig_gspec)
     for j, metrics in enumerate(metrics_list):
 
@@ -339,25 +368,60 @@ def plot_metrics(fig, fig_gspec, metrics_list, title, ylabel, min_v, max_v, star
         if is_write_val: # データ点にテキストを追加
             x_val = np.arange(len(metrics[1]))
             y_val = metrics[1]
-            text_margin = (max_v - min_v) / 20
+            if y_lim is None:
+                raise ValueError('y_lim must be set when is_write_val is True')
+            text_margin = (y_lim[1]- y_lim[0]) / 20
             for i in range(len(x_val)):
                 if i > start_seq:
                     plt.text(x_val[i], y_val[i] + text_margin, f'{y_val[i]:.3f}', ha='center', va='center')
 
     ax.set_xlim(start_seq, len_seq)
-    ax.set_ylim(min_v, max_v)
+    if y_lim is not None:
+        ax.set_ylim(y_lim[0], y_lim[1])
     ax.set_xlabel('t')
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
-    if is_move:
-        ax.vlines(t, min_v, max_v, color='g', linestyles='dotted', linewidth=3)
+def plot_metrics_thesis(metrics_list, title, ylabel, start_seq, len_seq, len_input, y_lim=None, is_move=False, t=0, is_error=False, is_write_val=False, square=False):
+    matplotlib.rcParams.update({'font.size': 20})
+    if square:
+        fig = plt.figure(figsize=(8, 6))
+    else:
+        fig = plt.figure(figsize=(12, 6))
 
+    ax = fig.add_subplot(1, 1, 1)
+    for j, metrics in enumerate(metrics_list):
+
+        if len(metrics) > 3:
+            linestyle = metrics[3]
+            marker = metrics[4]
+        else:
+            linestyle = '-'
+            marker = 'o'
+
+        ax.plot(metrics[1], color=metrics[2], label=metrics[0], linewidth=2, linestyle=linestyle, marker=marker)
+
+        if is_write_val: # データ点にテキストを追加
+            x_val = np.arange(len(metrics[1]))
+            y_val = metrics[1]
+            if y_lim is None:
+                raise ValueError('y_lim must be set when is_write_val is True')
+            text_margin = (y_lim[1]- y_lim[0]) / 20
+            for i in range(len(x_val)):
+                if i > start_seq:
+                    plt.text(x_val[i], y_val[i] + text_margin, f'{y_val[i]:.3f}', ha='center', va='center')
     if is_error:
         ax.axhline(y=0, color='blue')
         #ax.axhspan(-5, 5, color="blue", alpha=0.1)
 
-
-    ax.axvspan(0, len_input, color="gray", alpha=0.1)
+    ax.axvspan(0, len_input - 0.5, color="gray", alpha=0.1)
     ax.grid(True)
     ax.legend()
+
+    ax.set_xlim(start_seq, len_seq)
+    if y_lim is not None:
+        ax.set_ylim(y_lim[0], y_lim[1])
+    ax.set_xlabel('t')
+    ax.set_ylabel(ylabel)
+    plt.tight_layout()
+    plt.savefig(title + '.png')

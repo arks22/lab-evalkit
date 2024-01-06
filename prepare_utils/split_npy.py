@@ -4,7 +4,7 @@ import glob
 from tqdm import tqdm
 
 def split_npy(tmp_dir):
-    print('4. split npy...')
+    print('3. split npy...')
 
     # Get all npy files in the tmp directory
     for npy_file in tqdm(glob.glob(f'{tmp_dir}/*.npy')):

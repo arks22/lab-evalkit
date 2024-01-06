@@ -20,24 +20,24 @@ def main(args):
     os.makedirs(pd_fits_dir, exist_ok=True)
 
     # 1. Transfer the ground truth fits files
-    transfer_gt_fits(args.fits_source, gt_fits_dir, args.assignment_path, args.wave_n)
+    #transfer_gt_fits(args.fits_source, gt_fits_dir, args.assignment_path, args.wave_n)
 
     # 2. Transfer the prediction npy files
     transfer_pd_npy(args.pd_timestamp, tmp_dir, dst_dir, args.wave_n)
 
-    # 3. Decode the scaling and normalize the images
-    reverse_processing(tmp_dir, args.min_value, args.max_value)
-   
-    # 4. Split the images
+    # 3. Split to the dir
     split_npy(tmp_dir)
 
-    # 5. Convert npy to fits
+    # 4. Convert npy to fits
     convert_npy_to_fits(tmp_dir, gt_fits_dir, pd_fits_dir)
+
+    # 5. Decode the scaling and normalize the images
+    reverse_processing(pd_fits_dir, args.min_value, args.max_value)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('pd_timestamp', type=str, help='TimeStamp of The predictiopn source directory from which to copy the npy files')
-    parser.add_argument('--fits_source', type=str, required=True)
+    parser.add_argument('fits_source', type=str)
     parser.add_argument('--assignment_path', type=str, required=True)
     parser.add_argument('--min_value', type=float, default=0, help='Min value for decoding normalization')
     parser.add_argument('--max_value', type=float, default=10000, help='Max value for decoding normalization')

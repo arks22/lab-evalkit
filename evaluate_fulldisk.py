@@ -20,6 +20,12 @@ from sunpy.map import Map
 from sunpy.physics.differential_rotation import differential_rotate
 from sunpy.coordinates.ephemeris import get_body_heliographic_stonyhurst
 
+import matplotlib
+from matplotlib import rc
+rc('font', family='serif')
+rc('font', serif='DejaVu Serif')
+rc('text', usetex=False)
+
 from evaluate_utils import rotate_map
 from evaluate_utils import resize_map
 from evaluate_utils import mask_map
@@ -33,7 +39,9 @@ from evaluate_utils import plot_images
 from evaluate_utils import plot_map
 from evaluate_utils import plot_histogram
 from evaluate_utils import plot_scatter
+from evaluate_utils import plot_scatter_thesis
 from evaluate_utils import plot_metrics
+from evaluate_utils import plot_metrics_thesis
 from evaluate_utils import plot_diff
 from evaluate_utils import find_limb_deg
 from evaluate_utils import generate_submap_by_lng
@@ -43,6 +51,8 @@ from evaluate_utils import calculate_blur_with_fft
 
 
 def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, len_input, args):
+    dir = args.out_dir
+
     gt_mean      = np.full((len_test, len_seq), np.nan)
     pd_mean      = np.full_like(gt_mean, np.nan)
     dr_mean      = np.full_like(gt_mean, np.nan)
@@ -54,8 +64,12 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
     gt_dr_error_lng = np.full((len_test, len_seq, num_regions), np.nan)
 
     gt_east_limb_last_input  = np.full((len_test), np.nan)
-    gt_east_limb_last_output = np.full((len_test), np.nan)
-    pd_east_limb_last_output = np.full((len_test), np.nan)
+
+    pd_mean_last = np.full((len_test), np.nan)
+    gt_mean_last = np.full((len_test), np.nan)
+    dr_mean_last = np.full((len_test), np.nan)
+    gt_east_limb_last = np.full((len_test), np.nan)
+    pd_east_limb_last = np.full((len_test), np.nan)
 
     error_gt_pd       = np.full_like(gt_mean, np.nan)
     error_crop_gt_dr  = np.full_like(gt_mean, np.nan)
@@ -64,13 +78,20 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
     ssim_gt_pd        = np.full_like(gt_mean, np.nan)
     ssim_crop_gt_dr   = np.full_like(gt_mean, np.nan)
     ssim_crop_gt_pd   = np.full_like(gt_mean, np.nan)
+    ssim_lng_gt_pd    = np.full((len_test, len_seq, num_regions), np.nan)
+    ssim_lng_gt_dr    = np.full((len_test, len_seq, num_regions), np.nan)
     
     blur_fft = np.full_like(gt_mean, np.nan)
 
     img_shape = (args.img_size, args.img_size)
 
     # テストセットの数だけループ
+    fig = plt.figure(figsize=(16, 4))
+    index = 0
+    matplotlib.rcParams.update({'font.size': 22})
+
     for i in tqdm(range(len_test), leave=False):
+        if i > 1: break ## debug
         gt_fits_files = sorted(glob(f'{gt_dirs[i]}/*'))
         pd_fits_files = sorted(glob(f'{pd_dirs[i]}/*'))
 
@@ -79,7 +100,9 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
         gt_maps, pd_maps, dr_maps, gt_crop_maps, pd_crop_maps = [], [], [], [], [] 
         diff_gt_pds, diff_gt_drs = [], []
         diff_lng_gt_pds, diff_lng_gt_drs = [], []
-        submaps = []
+        submap_lng_gt_ss = []
+        submap_lng_pd_ss = []
+        submap_lng_dr_ss = []
 
         for t in tqdm(range(len_seq), leave=False, desc='Map Generation: '):
             gt_map = Map(gt_fits_files[t])
@@ -87,7 +110,7 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
 
             dummy_map = Map(np.full(img_shape, 0), gt_map.meta)
 
-            if t < len_input:
+            if t < len_input: # 入力シークエンス
                 pd_map     = dummy_map
                 dr_map     = dummy_map
                 gt_crop_map = dummy_map
@@ -97,12 +120,17 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
                 diff_lng_gt_pd = dummy_map.data
                 diff_lng_gt_dr = dummy_map.data
 
+                # 経度ごとのサブマップ
+                submap_lng_gt_s = [dummy_map] * num_regions
+                submap_lng_pd_s = [dummy_map] * num_regions 
+                submap_lng_dr_s = [dummy_map] * num_regions
+
                 # 最終入力で東のリムの平均輝度を計算
                 if t == len_input-1:
                     _, gt_mean_lng_limb = generate_mean_map_by_lng(gt_map, num_regions)
                     gt_east_limb_last_input[i] = gt_mean_lng_limb[num_regions-1] #最も東の領域
 
-            else:
+            else:   # 出力シークエンス
                 # PDマップを読み込み
                 pd_map = Map(Map(pd_fits_files[t - len_input]).data, gt_map.meta)
 
@@ -114,9 +142,34 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
                 gt_crop_map = mask_map(gt_map, dr_map)
                 pd_crop_map = mask_map(pd_map, dr_map)
 
+                """
+                fig = plt.figure(figsize=(6, 6))
+                ax = fig.add_subplot(111, projection=pd_crop_map)
+                pd_crop_map.plot(clip_interval=(1,99.99)*u.percent)
+                ax.coords[0].set_ticks_visible(False)  # X軸の目盛りを無効化
+                ax.coords[1].set_ticks_visible(False)  # Y軸の目盛りを無効化
+                ax.coords[0].set_ticklabel_visible(False)  # X軸のラベルを無効化
+                ax.coords[1].set_ticklabel_visible(False)  # X軸のラベルを無効化
+                ax.grid(False)
+                plt.tight_layout()
+                plt.savefig(f'crop_map.png')
+                print('aaaa')
+                exit()
+                """
+
                 # ピクセルごとの差分マップデータ
                 diff_gt_pd = generate_diff_map(gt_crop_map, pd_crop_map).data
                 diff_gt_dr = generate_diff_map(gt_crop_map, dr_map).data
+                
+                # 経度ごとのサブマップ
+                submap_lng_gt_s = []
+                submap_lng_pd_s = []
+                submap_lng_dr_s = []
+                for lng in range(-90, 90, 36):
+                    tuple_lng = (lng, lng+36)
+                    submap_lng_gt_s.append(generate_submap_by_lng(gt_map, tuple_lng))
+                    submap_lng_pd_s.append(generate_submap_by_lng(pd_map, tuple_lng))
+                    submap_lng_dr_s.append(generate_submap_by_lng(dr_map, tuple_lng))
     
                 #経度ごとの平均輝度とそのマップ
                 mean_map_gt, gt_mean_lng = generate_mean_map_by_lng(gt_crop_map, num_regions)
@@ -131,12 +184,12 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
                 diff_lng_gt_pd = generate_diff_map(mean_map_gt, mean_map_pd).data
                 diff_lng_gt_dr = generate_diff_map(mean_map_gt, mean_map_dr).data
 
-                # 最終出力で東のリムの平均輝度を計算
+                # 最終出力で散布図のためのデータを取得
                 if t == len_seq-1:
                     _, gt_mean_lng_limb = generate_mean_map_by_lng(gt_map, num_regions)
                     _, pd_mean_lng_limb = generate_mean_map_by_lng(pd_map, num_regions)
-                    gt_east_limb_last_output[i] = gt_mean_lng_limb[num_regions-1] #最も東の領域
-                    pd_east_limb_last_output[i] = pd_mean_lng_limb[num_regions-1]
+                    gt_east_limb_last[i] = gt_mean_lng_limb[num_regions-1] #最も東の領域
+                    pd_east_limb_last[i] = pd_mean_lng_limb[num_regions-1]
 
             # 各マップをリストに追加
             gt_maps.append(gt_map)
@@ -148,6 +201,32 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
             diff_gt_drs.append(diff_gt_dr)
             diff_lng_gt_pds.append(diff_lng_gt_pd)
             diff_lng_gt_drs.append(diff_lng_gt_dr)
+            submap_lng_gt_ss.append(submap_lng_gt_s)
+            submap_lng_pd_ss.append(submap_lng_pd_s)
+            submap_lng_dr_ss.append(submap_lng_dr_s)
+
+            """
+            # SDRのサンプルプロット
+            if i == 0:
+                if t >= len_input-1 and (t+1) % 4 == 0:
+                    if t == len_input-1:
+                        dr_map = gt_maps[len_input-1]
+                    ax = fig.add_subplot(1, 4, index+1, projection=dr_map)
+                    dr_map.plot(clip_interval=(1,99.99)*u.percent)
+                    ax.set_title(f't = {t}')
+                    ax.coords[0].set_ticks_visible(False)  # X軸の目盛りを無効化
+                    ax.coords[1].set_ticks_visible(False)  # Y軸の目盛りを無効化
+                    ax.coords[0].set_ticklabel_visible(False)  # X軸のラベルを無効化
+                    ax.coords[1].set_ticklabel_visible(False)  # X軸のラベルを無効化
+                    ax.grid(False)
+                    index += 1
+            """
+
+        """
+        plt.tight_layout()
+        plt.savefig(f'{dir}/sdr.png')
+        exit()
+        """
 
         # --------------------------------------------------------------------#
         # グラフの値域を決めるため、メトリクスを先に計算
@@ -175,8 +254,17 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
                 ssim_gt_pd[i,t]        = calculate_ssim(gt_img, pd_img)
                 ssim_crop_gt_dr[i,t]   = calculate_ssim(gt_crop_img, dr_img)
                 ssim_crop_gt_pd[i,t]   = calculate_ssim(gt_crop_img, pd_crop_img)
+
+                for r in range(num_regions):
+                    ssim_lng_gt_pd[i,t,r] = calculate_ssim(submap_lng_gt_ss[t][r].data, submap_lng_pd_ss[t][r].data)
+                    ssim_lng_gt_dr[i,t,r] = calculate_ssim(submap_lng_gt_ss[t][r].data, submap_lng_dr_ss[t][r].data)
                 
                 blur_fft[i,t] = calculate_blur_with_fft(pd_img)
+                
+                if t == len_seq-1:
+                    pd_mean_last[i] = pd_mean[i, t]
+                    gt_mean_last[i] = gt_mean[i, t]
+                    dr_mean_last[i] = dr_mean[i, t]
                 
         # --------------------------------------------------------------------#
         # プロット
@@ -187,8 +275,8 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
             writer = imageio.get_writer(f'{save_dir}/{i}.mp4', fps=5)
 
             for t in tqdm(range(len_seq), leave=False, desc='Plot: '):
-                fig = plt.figure(figsize=(24,36), tight_layout=True) #(横,縦)
-                gspec = gridspec.GridSpec(17, 3) #(縦,横)
+                fig = plt.figure(figsize=(24,40), tight_layout=True) #(横,縦)
+                gspec = gridspec.GridSpec(19, 3) #(縦,横)
                 plt.rcParams["font.size"] = 14
 
                 """
@@ -206,7 +294,8 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
                 ssim_list = [('GT - Prediction', ssim_gt_pd[i], '#ff7f0e')]
                 plot_metrics(fig, gspec[5,0:3], ssim_list, 'SSIM', 'SSIM',  0.85, 1, 0, len_seq, len_input, is_move=True, t=t)
                 """
-
+                
+                
                 # クロップされたマップのプロット
                 plot_map(fig, gspec[0:3,0], gt_maps[t], draw_lng=False)
                 plot_map(fig, gspec[0:3,1], pd_maps[t], draw_lng=False)
@@ -233,33 +322,33 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
                 """
 
                 # 輝度強度の誤差推移グラフ
-                error_list = [('GT - Prediction', error_crop_gt_pd[i], '#ff7f0e'), ('GT - Sunpy', error_crop_gt_dr[i], '#2ca02c')]
-                plot_metrics(fig, gspec[11:13,0:3], error_list, 'Error of Mean Intensity', '%',-30, 30, 12, len_seq, len_input, is_move=True, t=t, is_error=True)
+                error_list = [('MAU - Actual', error_crop_gt_pd[i], '#ff7f0e'), ('Howard (1990) - Actual', error_crop_gt_dr[i], '#2ca02c')]
+                plot_metrics(fig, gspec[11:13,0:3], error_list, 'Error of Mean Intensity', '%', 12, len_seq, len_input, is_move=True, t=t, is_error=True)
 
                 # 経度ごとの平均輝度の誤差推移グラフ
                 cmap_tab10 = cm.get_cmap('tab10', 10)
-                error_list = [('GT - PD | 54 to 90', gt_pd_error_lng[i,:,0], cmap_tab10(0), '-', 'o'),
-                              ('GT - PD | 18 to 54', gt_pd_error_lng[i,:,1], cmap_tab10(1), '-', 'o'),
+                error_list = [('GT - PD | -54 to -90', gt_pd_error_lng[i,:,0], cmap_tab10(0), '-', 'o'),
+                              ('GT - PD | -18 to -54', gt_pd_error_lng[i,:,1], cmap_tab10(1), '-', 'o'),
                               ('GT - PD | -18 to 18' , gt_pd_error_lng[i,:,2], cmap_tab10(2), '-', 'o'),
-                              ('GT - PD | -18 to -54'  , gt_pd_error_lng[i,:,3], cmap_tab10(3), '-', 'o'),
-                              ('GT - PD | -54 to -90'  , gt_pd_error_lng[i,:,4], cmap_tab10(4), '-', 'o'),
-                              ('GT - SP | 54 to 90', gt_dr_error_lng[i,:,0], cmap_tab10(0), ':', 'x'),
-                              ('GT - SP | 18 to 54', gt_dr_error_lng[i,:,1], cmap_tab10(1), ':', 'x'),
+                              ('GT - PD | 18 to 54'  , gt_pd_error_lng[i,:,3], cmap_tab10(3), '-', 'o'),
+                              ('GT - PD | 54 to 90'  , gt_pd_error_lng[i,:,4], cmap_tab10(4), '-', 'o'),
+                              ('GT - SP | -54 to -90', gt_dr_error_lng[i,:,0], cmap_tab10(0), ':', 'x'),
+                              ('GT - SP | -18 to -54', gt_dr_error_lng[i,:,1], cmap_tab10(1), ':', 'x'),
                               ('GT - SP | -18 to 18' , gt_dr_error_lng[i,:,2], cmap_tab10(2), ':', 'x'),
-                              ('GT - SP | -18 to -54'  , gt_dr_error_lng[i,:,3], cmap_tab10(3), ':', 'x'),
-                              ('GT - SP | -54 to -90'  , gt_dr_error_lng[i,:,4], cmap_tab10(4), ':', 'x')]
-                plot_metrics(fig, gspec[13:15,0:3], error_list, 'Error rate per longitude ', '%', -60, 60, 12, len_seq, len_input, is_move=True, t=t, is_error=True)
+                              ('GT - SP | 18 to 54'  , gt_dr_error_lng[i,:,3], cmap_tab10(3), ':', 'x'),
+                              ('GT - SP | 54 to 90'  , gt_dr_error_lng[i,:,4], cmap_tab10(4), ':', 'x')]
+                plot_metrics(fig, gspec[13:17,0:3], error_list, 'Error rate per longitude ', '%', 12, len_seq, len_input, is_move=True, t=t, is_error=True)
                 
-                # ブラー推移グラフ
-                plot_metrics(fig, gspec[15:17,0:3], [('Blur', blur_fft[i], '#1f77b4')], 'Blur', 'Blur', 0, 10, 0, len_seq, len_input, is_move=True, t=t)
-
                 """
+                # ブラー推移グラフ
+                plot_metrics(fig, gspec[17:19,0:3], [('Blur', blur_fft[i], '#1f77b4')], 'Blur', 'Blur', 0, len_seq, len_input, is_move=True, t=t)
+
                 # SSIM推移グラフ
                 ssim_list = [('GT - Prediction', ssim_crop_gt_pd[i], '#ff7f0e'), ('GT - Sunpy', ssim_crop_gt_dr[i], '#2ca02c')]
                 plot_metrics(fig, gspec[5,3:6], ssim_list, 'SSIM', 'SSIM',  0.85, 1, 0, len_seq, len_input, is_move=True, t=t)
                 """
-
                 writer.append_data(fig_to_ndarray(fig))
+                plt.legend()
                 plt.close(fig)
                 plt.clf()
 
@@ -269,17 +358,21 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
     # ------------------------------------------------------------------------------------------------------------------------
     # まとめプロット
     # ------------------------------------------------------------------------------------------------------------------------
-    fig = plt.figure(figsize=(20,48), tight_layout=True)
-    gspec = gridspec.GridSpec(5, 2)
+    #fig = plt.figure(figsize=(20,48), tight_layout=True)
+    #gspec = gridspec.GridSpec(5, 2)
     plt.rcParams["font.size"] = 12
 
     mean_error_gt_pd = np.nanmean(np.abs(error_crop_gt_pd), axis=0)
     mean_error_gt_dr = np.nanmean(np.abs(error_crop_gt_dr), axis=0)
+
+    mean_error_lng_gt_pd = np.nanmean(np.abs(gt_pd_error_lng), axis=0)
+    mean_error_lng_gt_dr = np.nanmean(np.abs(gt_dr_error_lng), axis=0)
+
     mean_ssim_gt_pd  = np.nanmean(ssim_crop_gt_pd, axis=0)
     mean_ssim_gt_dr  = np.nanmean(ssim_crop_gt_dr, axis=0)
-    mean_error_gt_pd_lng = np.nanmean(gt_pd_error_lng, axis=0)
-    mean_error_gt_dr_lng = np.nanmean(gt_dr_error_lng, axis=0)
-
+    
+    mean_ssim_lng_gt_pd  = np.nanmean(ssim_lng_gt_pd, axis=0)
+    mean_ssim_lng_gt_dr  = np.nanmean(ssim_lng_gt_dr, axis=0)
     """
     # シンプルなGT-PDの平均輝度の誤差推移グラフ
     error_list = [('GT - Prediction', mean_error_gt_pd, '#ff7f0e')]
@@ -290,44 +383,85 @@ def evaluate_fulldisk(dst_dir, gt_dirs, pd_dirs, len_test, len_seq, len_output, 
     plot_metrics(fig, gspec[1,:], error_list, 'Average Absolute Error of Mean Intensity', '%',0, 20, len_input, len_seq, len_input, is_write_val=True)
     """
 
+    ############# 平均輝度の誤差　#############
     # GTと動画予測の平均輝度の誤差推移グラフ
-    title = 'Average Error Rate of Mean Intensity'
-    error_list = [('GT - Prediction', mean_error_gt_pd, '#ff7f0e'), ('GT - Sunpy', mean_error_gt_dr, '#2ca02c')]
-    plot_metrics(fig, gspec[0,:], error_list, title, '%',0, 20, len_input, len_seq, len_input, is_write_val=True)
+    title = f'{dir}/error'
+    error_list = [('MAU - Actual', mean_error_gt_pd, '#ff7f0e')]
+    plot_metrics_thesis(error_list, title, 'Average Absolute Error (%)', len_input, len_seq, len_input, )
 
-    # GTと動画予測の平均輝度の誤差推移グラフ
+    # gtと差動回転モデルの平均輝度の誤差推移グラフ
+    title = f'{dir}/error_dr'
+    error_list = [('MAU - Actual', mean_error_gt_pd, '#ff7f0e'), ('Howard (1990) - Actual', mean_error_gt_dr, '#2ca02c')]
+    plot_metrics_thesis(error_list, title, 'Avarage Absolute Error (%)', len_input, len_seq, len_input, )
+    
+    # 散布図
+    title = f'{dir}/intensity_scatter_gt_pd'
+    plot_scatter_thesis(title, gt_mean_last, pd_mean_last, 'Actual Intensity at the End', 'Prediction Intensity at the End (MAU)', color='#ff7f0e', lim=(80, 200))
+
+    # 散布図
+    title = f'{dir}/intensity_scatter_gt_dr'
+    plot_scatter_thesis(title, gt_mean_last, dr_mean_last, 'Actual Intensity at the End', 'Prediction Intensity at the End (Howard (1990))', lim=(80, 300))
+
+    # 経度ごとの平均輝度の誤差推移グラフ
     cmap_tab10 = cm.get_cmap('tab10', 10)
-    title = 'Average Error Rate of Mean Intensity Per Longitude of GT - Prediction'
-    error_list = [('54d to 90d',   mean_error_gt_pd_lng[:,0], cmap_tab10(0), '-', 'o'),
-                  ('18d to 54d',   mean_error_gt_pd_lng[:,1], cmap_tab10(1), '-', 'o'),
-                  ('-18d to 18d',  mean_error_gt_pd_lng[:,2], cmap_tab10(2), '-', 'o'),
-                  ('-54d to -18d', mean_error_gt_pd_lng[:,3], cmap_tab10(3), '-', 'o'),
-                  ('-90d to -54d', mean_error_gt_pd_lng[:,4], cmap_tab10(4), '-', 'o')]
-    plot_metrics(fig, gspec[1,:], error_list, title, '%', -15, 15, len_input, len_seq, len_input, is_write_val=True)
+    title = f'{dir}/lng_error_1'
+    error_list = [('MAU',   mean_error_lng_gt_pd[:,0], cmap_tab10(1)), ('Howard (1990)',   mean_error_lng_gt_dr[:,0], cmap_tab10(2))]
+    plot_metrics_thesis(error_list, title, 'Average Absolute Error (%)', len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_error_2'
+    error_list = [('MAU',   mean_error_lng_gt_pd[:,1], cmap_tab10(1)), ('Howard (1990)',   mean_error_lng_gt_dr[:,1], cmap_tab10(2))]
+    plot_metrics_thesis(error_list, title, 'Average Absolute Error (%)', len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_error_3'
+    error_list = [('MAU',   mean_error_lng_gt_pd[:,2], cmap_tab10(1)), ('Howard (1990)',   mean_error_lng_gt_dr[:,2], cmap_tab10(2))]
+    plot_metrics_thesis(error_list, title, 'Average Absolute Error (%)', len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_error_4'
+    error_list = [('MAU',   mean_error_lng_gt_pd[:,3], cmap_tab10(1)), ('Howard (1990)',   mean_error_lng_gt_dr[:,3], cmap_tab10(2))]
+    plot_metrics_thesis(error_list, title, 'Average Absolute Error (%)', len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_error_5'
+    error_list = [('MAU',   mean_error_lng_gt_pd[:,4], cmap_tab10(1)), ('Howard (1990)',   mean_error_lng_gt_dr[:,4], cmap_tab10(2))]
+    plot_metrics_thesis(error_list, title, 'Average Absolute Error (%)', len_input, len_seq, len_input, square=True)
 
-    # GTと差動回転モデルの平均輝度の誤差推移グラフ
-    title = 'Average Error Rate of Mean Intensity Per Longitude of GT - Diffrential Rotation Model by Sunpy'
-    error_list = [('54d to 90d',   mean_error_gt_dr_lng[:,0], cmap_tab10(0), ':', 'x'),
-                  ('18d to 54d',   mean_error_gt_dr_lng[:,1], cmap_tab10(1), ':', 'x'),
-                  ('-18d to 18d',  mean_error_gt_dr_lng[:,2], cmap_tab10(2), ':', 'x'),
-                  ('-54d to -18d', mean_error_gt_dr_lng[:,3], cmap_tab10(3), ':', 'x'),
-                  ('-90d to -54d', mean_error_gt_dr_lng[:,4], cmap_tab10(4), ':', 'x')]
-    plot_metrics(fig, gspec[2,:], error_list, title, '%', -70, 70, len_input, len_seq, len_input, is_write_val=True)
-
-    # SSIM
-    ssim_list = [('GT - Prediction', mean_ssim_gt_pd, '#ff7f0e'), ('GT - Sunpy', mean_ssim_gt_dr, '#2ca02c')]
-    plot_metrics(fig, gspec[3,:], ssim_list, 'Average SSIM', 'SSIM',  0.85, 1, len_input, len_seq, len_input, is_write_val=True)
-
-    # 東のリムの平均輝度の再現度の評価
-    min_v = min(np.nanmin(gt_east_limb_last_input), np.nanmin(gt_east_limb_last_output), np.nanmin(pd_east_limb_last_output)) * 0.8
-    max_v = max(np.nanmax(gt_east_limb_last_input), np.nanmin(gt_east_limb_last_output), np.nanmax(pd_east_limb_last_output)) * 1.1
+    ######### SSIM #########
+    # 全球のSSIM
+    title = f'{dir}/ssim'
+    ssim_list = [('MAU - Actual', mean_ssim_gt_pd, '#ff7f0e'), ('Howard (1990) - Actual', mean_ssim_gt_dr, '#2ca02c')]
+    plot_metrics_thesis(ssim_list, title, 'SSIM',  len_input, len_seq, len_input, )
+    
+    # 経度ごとのSSIM(GT - PD)
+    title = f'{dir}/lng_ssim_1'
+    ssim_list = [('MAU',   mean_ssim_lng_gt_pd[:,0], cmap_tab10(1)) , ('Howard (1990)', mean_ssim_lng_gt_dr[:,0], cmap_tab10(2), )]
+    plot_metrics_thesis(ssim_list, title, 'SSIM',  len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_ssim_2'
+    ssim_list = [('MAU',   mean_ssim_lng_gt_pd[:,1], cmap_tab10(1)), ('Howard (1990)', mean_ssim_lng_gt_dr[:,1], cmap_tab10(2),)]
+    plot_metrics_thesis(ssim_list, title, 'SSIM',  len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_ssim_3'
+    ssim_list = [('MAU',   mean_ssim_lng_gt_pd[:,2], cmap_tab10(1)), ('Howard (1990)', mean_ssim_lng_gt_dr[:,2], cmap_tab10(2),)]
+    plot_metrics_thesis(ssim_list, title, 'SSIM',  len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_ssim_4'
+    ssim_list = [('MAU',   mean_ssim_lng_gt_pd[:,3], cmap_tab10(1),), ('Howard (1990)', mean_ssim_lng_gt_dr[:,3], cmap_tab10(2),)]
+    plot_metrics_thesis(ssim_list, title, 'SSIM',  len_input, len_seq, len_input, square=True)
+    
+    title = f'{dir}/lng_ssim_5'
+    ssim_list = [('MAU',   mean_ssim_lng_gt_pd[:,4], cmap_tab10(1),), ('Howard (1990)', mean_ssim_lng_gt_dr[:,4], cmap_tab10(2),)]
+    plot_metrics_thesis(ssim_list, title, 'SSIM',  len_input, len_seq, len_input, square=True)
+    
+    ##########  東のリムの平均輝度の再現度の評価 #########
+    min_v = min(np.nanmin(gt_east_limb_last_input), np.nanmin(gt_east_limb_last), np.nanmin(pd_east_limb_last)) * 0.8
+    max_v = max(np.nanmax(gt_east_limb_last_input), np.nanmin(gt_east_limb_last), np.nanmax(pd_east_limb_last)) * 1.1
 
     #   GTの最終出力とPDの最終出力の散布図
-    title = 'Mean Intensity of East Limb'
-    plot_scatter(fig, gspec[4,0], gt_east_limb_last_output, pd_east_limb_last_output, min_v, max_v, 'GT Intensity at the Last', 'Prediction Intensity at the Last')
+    title = f'{dir}/limb_scatter_gt_pd'
+    plot_scatter_thesis(title, gt_east_limb_last, pd_east_limb_last, 'Easten Limb Average Intensity at the End (Actual)', 'Easten Limb Average Intensity at the End (MAU)', color='#ff7f0e', lim=(min_v, max_v))
     
     #   GTの最終入力とGTの最終出力の散布図
-    plot_scatter(fig, gspec[4,1], gt_east_limb_last_output, gt_east_limb_last_input, min_v, max_v, 'GT Intensity at the Last', 'INPUT IMAGE Intensity at the Last')
+    title = f'{dir}/limb_scatter_gt_dr'
+    plot_scatter_thesis(title, gt_east_limb_last, gt_east_limb_last_input, 'Easten Limb Average Intensity at the End (Actual)', 'Easten Limb Average Intensity at the end of Input (Actual)', lim=(min_v, max_v))
 
     summary_plot_path = os.path.join(dst_dir, 'summary_fulldisk.png')
     fig.savefig(summary_plot_path)

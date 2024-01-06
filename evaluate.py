@@ -43,6 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--img_size', type=int, default=512)
     parser.add_argument('--eval_type', type=str, default='fulldisk')
     parser.add_argument('--dont_plot', action='store_true')
+    parser.add_argument('--out_dir', default='.')
     args = parser.parse_args()
 
     warnings.simplefilter('ignore', RuntimeWarning)
